@@ -1,34 +1,24 @@
-# Clone Hero Score Exporter
+# clonehero-score-exporter
+Extracts scores and song information from Clone Hero's `scoredata.bin`, `scoresext.bin` and `songcache.bin` into JSON and CSV, and prints your total plays and playtime to the terminal.
 
-Parses Clone Hero's `scoredata.bin`, `scoresext.bin`, and `songcache.bin` into
-`scores.json` and `scores.xlsx`.
+# Requirements
+Python 3.6+
 
-**Requires openpyxl** for excel output
+# Setup
+Open `main.py` and set `DEFAULT_CH_DIR` to your Clone Hero data folder. 
 
-## Setup / run
+On Windows this is usually:
+`C:\Users\<username>\AppData\LocalLow\srylain Inc_\Clone Hero`
 
-Open `main.py` and edit `DEFAULT_CH_DIR` with your install loc (username edit is enough for most windows installs):
+# Usage
+Save & run `main.py`
 
-`DEFAULT_CH_DIR` = `r"C:\Users\[user]\AppData\LocalLow\srylain Inc_\Clone Hero"`
+The script writes two files to the directory you run it from (overwriting any previous copies) and prints totals to the console:
 
-Save the file and run!
+- **scores.json** — everything parsed, keyed by chart checksum, including songs that are no longer in your library.
+- **scores.csv** — one row per song/instrument with general metadata, instrument, difficulty, %, stars, score, plays, time played, avg duration
+- Total plays and total playtime printed to the terminal output
 
-## Output
-
-**scores.xlsx** - two tabs:
-
-- **Clone Hero Scores** - one row per song/instrument/difficulty you've
-  scored, for songs actively in your library.
-- **Playtime** - every played song, including those no longer in your
-  library (shown as `(Unknown - checksum)`), since those still count
-  toward total time played.
-
-**scores.json** - the same combined data as a raw dict, keyed by song
-checksum.
-
-## Notes
-
-- **Percentage** shows `FC` for a full-combo value (`356`)
-- **Time Played** is a cumulative stat from `scoresext.bin`; 
-- **Avg Duration** divides Time PLayed by Plays as a rough per-run estimate - it
-  can run short if some plays were quit early/restarted.
+# Notes
+- Time played and avg duration are `h:mm:ss`. They're blank when the game didn't record playtime (older versions?). Avg duration is approximate, since restarts and quits seem to count as plays.
+- Song names are cleaned of formatting tags for readability

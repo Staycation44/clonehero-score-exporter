@@ -1,11 +1,14 @@
+import csv
 import json
 import io
 import os
 import re
 import sys
 
+#######
 # CHANGE: Clone Hero's default Windows data folder so this can be run from anywhere
 # Edit this for your username or if it's a different path / OS
+#######
 DEFAULT_CH_DIR = r"C:\Users\Dylan\AppData\LocalLow\srylain Inc_\Clone Hero"
 
 # CH uses little endian
@@ -226,8 +229,10 @@ def handle_json(info_dict):
 
 
 #----------------
-#EXCEL EXPORT - openpyxl dependency
+# CSV EXPORT
 #---------------
+
+FULL_COMBO_SENTINEL = 356  # Clone Hero FC/PFC placeholder
 
 # remove html tags for readability
 HTML_TAG_RE = re.compile(r"<[^>]*>")
@@ -236,7 +241,8 @@ def strip_tags(text):
     return HTML_TAG_RE.sub("", text)
 
 
-# Formats a millisecond duration to standard timer
+# Formats a millisecond duration as h:mm:ss
+# Always includes the hours field so spreadsheet apps read "0:03:45" as 3m45s, not 3h45m
 # Returns "" for 0/missing, since that means this stat wasn't recorded (played on old version?)
 def format_ms(ms):
     if not ms:
@@ -244,116 +250,46 @@ def format_ms(ms):
     total_seconds = round(ms / 1000)
     minutes, seconds = divmod(total_seconds, 60)
     hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours}:{minutes:02d}:{seconds:02d}"
-    return f"{minutes}:{seconds:02d}"
+    return f"{hours}:{minutes:02d}:{seconds:02d}"
 
 
-def handle_excel(info_dict):
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill
-    from openpyxl.utils import get_column_letter
-
-    FULL_COMBO_SENTINEL = 356  # Clone Hero FC/PFC placeholder
-
-    FONT = "Arial"
-    header_font = Font(name=FONT, bold=True, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="1F4E78")
-    normal_font = Font(name=FONT)
-    bold_font = Font(name=FONT, bold=True)
-
-    def style_header(ws):
-        for cell in ws[1]:
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = Alignment(horizontal="center")
-
-    wb = Workbook()
-
-    # Tab 1: Clone Hero Scores (titled songs only / active library)
-    ws = wb.active
-    ws.title = "Clone Hero Scores"
-
+def handle_csv(info_dict):
     cols = ["Title", "Artist", "Album", "Genre", "Year", "Charter", "Playlist",
             "Instrument", "Difficulty", "Percentage", "Stars", "Score", "Plays",
-            "Time Played", "Avg Duration", "Checksum", "ScoreExt Raw (hex)"]
-    ws.append(cols)
-    style_header(ws)
+            "Time Played", "Avg Duration"]
 
-    score_col = cols.index("Score") + 1
-    for checksum, info in info_dict.items():
-        if "Title" not in info:
-            # No recoverable metadata, skip on this tab / still used for Playtime
-            continue
-        base = [strip_tags(info["Title"]), strip_tags(info["Artist"]), strip_tags(info["Album"]),
-                strip_tags(info["Genre"]), info["Year"], strip_tags(info["Charter"]),
-                strip_tags(info["Playlist"])]
-        ext_raw = info.get("ext_raw_hex", "")
-        times_played_ms = info.get("ext_times_played_ms", [])
-        plays = info["plays"]
-        for idx, instrument in enumerate(info["instruments"]):
-            instrument_info = info["instruments"][instrument]
-            percentage = instrument_info["percentage"]
-            percentage_display = "FC" if round(percentage) == FULL_COMBO_SENTINEL else percentage
-            # "Time played" is total time
-            time_played_ms = times_played_ms[idx] if idx < len(times_played_ms) else 0
-            # Average duration is an estimate - seems to count partial plays (restarts/quit outs)
-            avg_duration_ms = time_played_ms / plays if plays else 0
-            ws.append(base + [instrument, instrument_info["difficulty"], percentage_display,
-                               instrument_info["stars"], instrument_info["score"], plays,
-                               format_ms(time_played_ms), format_ms(avg_duration_ms),
-                               checksum, ext_raw])
+    # utf-8-sig adds a BOM so Excel opens non-ASCII titles correctly; newline="" is required by csv
+    with open("scores.csv", "w", encoding="utf-8-sig", newline="") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(cols)
+        for info in info_dict.values():
+            if "Title" not in info:
+                # No recoverable metadata (chart removed/moved), skip
+                continue
+            base = [strip_tags(info["Title"]), strip_tags(info["Artist"]), strip_tags(info["Album"]),
+                    strip_tags(info["Genre"]), info["Year"], strip_tags(info["Charter"]),
+                    strip_tags(info["Playlist"])]
+            times_played_ms = info.get("ext_times_played_ms", [])
+            plays = info["plays"]
+            for idx, instrument in enumerate(info["instruments"]):
+                instrument_info = info["instruments"][instrument]
+                percentage = instrument_info["percentage"]
+                percentage_display = "FC" if round(percentage) == FULL_COMBO_SENTINEL else percentage
+                # "Time played" is total time
+                time_played_ms = times_played_ms[idx] if idx < len(times_played_ms) else 0
+                # Average duration is an estimate - seems to count partial plays (restarts/quit outs)
+                avg_duration_ms = time_played_ms / plays if plays else 0
+                writer.writerow(base + [instrument, instrument_info["difficulty"], percentage_display,
+                                        instrument_info["stars"], instrument_info["score"], plays,
+                                        format_ms(time_played_ms), format_ms(avg_duration_ms)])
 
-    for r in range(2, ws.max_row + 1):
-        for c in range(1, ws.max_column + 1):
-            ws.cell(row=r, column=c).font = normal_font
-        score_cell = ws.cell(row=r, column=score_col)
-        if isinstance(score_cell.value, (int, float)):
-            score_cell.number_format = "#,##0"
 
-    widths = [42, 22, 28, 16, 6, 20, 26, 10, 10, 9, 7, 9, 7, 12, 12, 34, 26]
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = w
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
-
-    # Checksum and the raw scoresext bytes are reference-only, hidden
-    for hidden_col in ("Checksum", "ScoreExt Raw (hex)"):
-        letter = get_column_letter(cols.index(hidden_col) + 1)
-        ws.column_dimensions[letter].hidden = True
-
-    #Tab 2: Playtime
-    pt = wb.create_sheet("Playtime")
-    pt_cols = ["Song", "Plays", "Duration Played"]
-    pt.append(pt_cols)
-    style_header(pt)
-
-    for checksum, info in info_dict.items():
-        song_label = strip_tags(info["Title"]) if "Title" in info else f"(Unknown - {checksum[:12]}...)"
-        plays = info["plays"]
-        total_ms = sum(info.get("ext_times_played_ms", []))
-        pt.append([song_label, plays, (total_ms / 1000) / 86400])
-
-    for r in range(2, pt.max_row + 1):
-        for c in range(1, pt.max_column + 1):
-            pt.cell(row=r, column=c).font = normal_font
-        pt.cell(row=r, column=3).number_format = "[h]:mm:ss"
-
-    total_row = pt.max_row + 1
-    pt.cell(row=total_row, column=1, value="TOTAL").font = bold_font
-    plays_cell = pt.cell(row=total_row, column=2, value=f"=SUM(B2:B{total_row - 1})")
-    plays_cell.font = bold_font
-    duration_cell = pt.cell(row=total_row, column=3, value=f"=SUM(C2:C{total_row - 1})")
-    duration_cell.font = bold_font
-    duration_cell.number_format = "[h]:mm:ss"
-
-    pt.column_dimensions["A"].width = 42
-    pt.column_dimensions["B"].width = 10
-    pt.column_dimensions["C"].width = 16
-    pt.freeze_panes = "A2"
-    pt.auto_filter.ref = f"A1:C{total_row - 1}"
-
-    wb.save("scores.xlsx")
+# Total playtime across every played song, including ones no longer in the library
+def print_totals(info_dict):
+    total_plays = sum(info["plays"] for info in info_dict.values())
+    total_ms = sum(sum(info.get("ext_times_played_ms", [])) for info in info_dict.values())
+    print(f"Total plays: {total_plays:,}")
+    print(f"Total playtime: {format_ms(total_ms) or '0:00:00'}")
 
 
 def main():
@@ -373,9 +309,11 @@ def main():
     #JSON
     print("Creating json")
     handle_json(info_dict)
-    # Excel
-    print("Creating excel")
-    handle_excel(info_dict)
+    # CSV
+    print("Creating csv")
+    handle_csv(info_dict)
+
+    print_totals(info_dict)
 
 
 if __name__ == "__main__":
