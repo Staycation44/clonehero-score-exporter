@@ -9,7 +9,7 @@ import sys
 # CHANGE: Clone Hero's default Windows data folder so this can be run from anywhere
 # Edit this for your username or if it's a different path / OS
 #######
-DEFAULT_CH_DIR = r"C:\Users\Dylan\AppData\LocalLow\srylain Inc_\Clone Hero"
+DEFAULT_CH_DIR = r"C:\Users\<USERNAME>\AppData\LocalLow\srylain Inc_\Clone Hero"
 
 # CH uses little endian
 def to_int(bytes):
